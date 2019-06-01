@@ -337,28 +337,28 @@ class TestStringMethods(unittest.TestCase):
 		y=x.func_real_dp_no_args()
 		self.assertEqual(y,4.0)
 		
-	# def test_sub_str_in_explicit(self):
-		# v='1324567980'
-		# with captured_output() as (out,err):
-			# y=x.sub_str_in_explicit(v)
-		# output=out.getvalue().strip()
-		# self.assertEqual(output,v)	
+	def test_sub_str_in_explicit(self):
+		v='1324567980'
+		with captured_output() as (out,err):
+			y=x.sub_str_in_explicit(v)
+		output=out.getvalue().strip()
+		self.assertEqual(output,v)	
 		
-	# def test_sub_str_in_implicit(self):
-		# v='123456789'
-		# with captured_output() as (out,err):
-			# y=x.sub_str_in_implicit(v)
-		# output=out.getvalue().strip()	
-		# self.assertEqual(output,v)	
+	def test_sub_str_in_implicit(self):
+		v='123456789'
+		with captured_output() as (out,err):
+			y=x.sub_str_in_implicit(v)
+		output=out.getvalue().strip()	
+		self.assertEqual(output,v)	
 	
-	# def test_sub_str_multi(self):
-		# v=5
-		# u='123456789'
-		# w=4
-		# with captured_output() as (out,err):
-			# y=x.sub_str_multi(v,u,w)
-		# output=out.getvalue().strip()	
-		# self.assertEqual(output,str(v+w)+' '+u)	
+	def test_sub_str_multi(self):
+		v=5
+		u='123456789'
+		w=4
+		with captured_output() as (out,err):
+			y=x.sub_str_multi(v,u,w)
+		output=out.getvalue().strip()	
+		self.assertEqual(output,str(v+w)+' '+u)	
 
 	# def test_sub_array_n_int_1d(self):
 		# v=np.arange(0,5)

@@ -53,7 +53,7 @@ _dictStTypes = {
 
 _allStructsBase = {}
 
-def makeCType(x,ptrs=True):
+def makeCType(x,ptrs=True,length=-1):
     res = None
     try:
         res = _dictCTypes[(x['pytype'],int(x['bytes']))]
@@ -62,11 +62,29 @@ def makeCType(x,ptrs=True):
     except KeyError:
         pass
         
-    if 'length' in x:
-        res = res * x['length']
+    if length > 0:
+        res = res * length
     elif 'struct' in x and x['struct']:
         res = cstruct(_allStructsBase[x['pytype']])
-    elif ptrs:
+    if ptrs:
+        res = ctypes.POINTER(res)
+
+    return res
+    
+def makeCValue(ctype,value,ptrs=True,length=-1):
+    res = None
+    try:
+        res = _dictCTypes[(x['pytype'],int(x['bytes']))]
+    except TypeError:
+        return None
+    except KeyError:
+        pass
+        
+    if length > 0:
+        res = res * length
+    elif 'struct' in x and x['struct']:
+        res = cstruct(_allStructsBase[x['pytype']])
+    if ptrs and res is not ctypes.c_char:
         res = ctypes.POINTER(res)
 
     return res

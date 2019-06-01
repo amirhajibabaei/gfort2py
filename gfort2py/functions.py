@@ -84,9 +84,20 @@ class fFunc(object):
             raise TypeError(str(self.name)+" takes at most "+str(self._num_args) + " arguments got "+str(len(args)))
             
         a = []
+        end = []
         if self._num_args:
-            for value,ptr,ctype in zip(args,self._func.argtypes,self._rawtypes):
-                a.append(ptr(ctype(value)))
+            for idx,j in enumerate(zip(args,self._func.argtypes,self._rawtypes)):
+                value,ptr,ctype = j
+                if ctype is ctypes.c_char:
+                    self._func.argtypes[idx] = ctypes.c_char * len(value.encode())
+                    self._func.argtypes.append(ctypes.c_int)
+                    end.append(ctypes.c_int(len(value.encode())))
+                    print()
+                    a.append(ctypes.create_string_buffer(value.encode(),len(value.encode())))
+                else:
+                    a.append(ptr(ctype(value)))
+        
+        a=a+end
         
         # Capture stdout messages
         res = None

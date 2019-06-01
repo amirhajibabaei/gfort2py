@@ -21,7 +21,10 @@ class fVar(object):
             self.var = var['var']
         elif 'param' in var:
             self.var = var['param']
-        self._ctype = makeCType(self.var,False)
+        if 'length' in self.var:
+            self._ctype = makeCType(self.var,False,self.var['length'])
+        else:
+            self._ctype = makeCType(self.var,False)
         self.name = name
         self.const = const
         self._init = True
