@@ -308,34 +308,34 @@ class TestStringMethods(unittest.TestCase):
 	def test_func_int_in(self):
 		v=5
 		y=x.func_int_in(v)
-			print(v,y)
-		self.assertEqual(int(y),2*v)
+		print(v,y)
+		self.assertEqual(y,2*v)
 		
-	# def test_func_int_in_multi(self):
-		# v=5
-		# w=3
-		# u=4
-		# y=x.func_int_in_multi(v,w,u)
-		# self.assertEqual(y,v+w+u)
+	def test_func_int_in_multi(self):
+		v=5
+		w=3
+		u=4
+		y=x.func_int_in_multi(v,w,u)
+		self.assertEqual(y,v+w+u)
 		
-	# def test_sub_int_in(self):
-		# v=5
-		# with captured_output() as (out,err):
-			# y=x.sub_int_in(v)
-		# output=out.getvalue().strip()
-		# self.assertEqual(int(output),2*v)	
+	def test_sub_int_in(self):
+		v=5
+		with captured_output() as (out,err):
+			y=x.sub_int_in(v)
+		output=out.getvalue().strip()
+		self.assertEqual(int(output),2*v)	
 
-	# def test_func_int_no_args(self):
-		# y=x.func_int_no_args()
-		# self.assertEqual(y,2)
+	def test_func_int_no_args(self):
+		y=x.func_int_no_args()
+		self.assertEqual(y,2)
 		
-	# def test_func_real_no_args(self):
-		# y=x.func_real_no_args()
-		# self.assertEqual(y,3.0)
+	def test_func_real_no_args(self):
+		y=x.func_real_no_args()
+		self.assertEqual(y,3.0)
 
-	# def test_func_real_dp_no_args(self):
-		# y=x.func_real_dp_no_args()
-		# self.assertEqual(y,4.0)
+	def test_func_real_dp_no_args(self):
+		y=x.func_real_dp_no_args()
+		self.assertEqual(y,4.0)
 		
 	# def test_sub_str_in_explicit(self):
 		# v='1324567980'

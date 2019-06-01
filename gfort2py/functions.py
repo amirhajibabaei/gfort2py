@@ -54,10 +54,6 @@ class fFunc(object):
         self.lib = lib
         self.name = name
         self.obj = func
-        try:
-            self.func = func['def']
-        except KeyError:
-            self.func = None
         self._args = self.obj['arg']
         self._num_args = len(self._args)
 
@@ -65,7 +61,7 @@ class fFunc(object):
         if '_func' not in self.__dict__:
             self._func = getattr(self.lib, self.obj['mangled_name'])
             try:
-                self._func.restype = makeCType(self.func,False) 
+                self._func.restype = makeCType(self.obj['proc']['ret'],False) 
             except KeyError:
                 self._func.restype = None
 
