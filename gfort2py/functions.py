@@ -92,7 +92,6 @@ class fFunc(object):
                     self._func.argtypes[idx] = ctypes.c_char * len(value.encode())
                     self._func.argtypes.append(ctypes.c_int)
                     end.append(ctypes.c_int(len(value.encode())))
-                    print()
                     a.append(ctypes.create_string_buffer(value.encode(),len(value.encode())))
                 else:
                     a.append(ptr(ctype(value)))
