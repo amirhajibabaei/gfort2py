@@ -106,9 +106,19 @@ class fFunc(object):
                 res = self._func(*a)
             else:
                 res = self._func()
+                
+        result = {}
+        for key,value in zip(self._args,a):
+            if hasattr(value,'contents'):
+                r = value.contents.value
+            elif hasattr(value,'value'):
+                r = value.value
+            else:
+                r = value
+            result[key['name']] = r
 
         if self.obj['proc']['sub']:
-            return a
+            return result
         else:
             return res
 
