@@ -291,6 +291,7 @@ module tester
       
       integer function func_int_in(x)
          integer, intent(in) ::x
+         !write(*,*) "**",x
          func_int_in=2*x
       end function func_int_in
       

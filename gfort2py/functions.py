@@ -12,10 +12,10 @@ import select
 import collections
 
 from .var import fVar
-from .cmplx import fComplex
-from .arrays import fExplicitArray, fDummyArray, fAssumedShape, fAssumedSize, fAllocatableArray
-from .strings import fStr
-from .types import fDerivedType
+# from .cmplx import fComplex
+# from .arrays import fExplicitArray, fDummyArray, fAssumedShape, fAssumedSize, fAllocatableArray
+# from .strings import fStr
+# from .types import fDerivedType
 from .utils import *
 from .errors import *
 
@@ -48,290 +48,347 @@ class captureStdOut():
             os.close(self.pipe_out)
             os.close(self.stdout)
 
-class fFunc(fVar):
 
-    def __init__(self, lib, obj):
-        self.__dict__.update(obj)
-        self._lib = lib
-        self._sub = self.proc['sub']
-            
-        self._set_return()
-        self._set_arg_ctypes()
-        self.save_args=False
-        self.args_out = None
-        
-        self._num_opt = self._count_optionals()
-        self._num_args = len(self._arg_vars) - self._num_opt
+class fFunc(object):
+    def __init__(self, lib, func, name):
+        self.lib = lib
+        self.name = name
+        self.obj = func
+        try:
+            self.func = func['def']
+        except KeyError:
+            self.func = None
+        self._args = self.obj['arg']
+        self._num_args = len(self._args)
 
-    def _get_ptr_func(self,name):
-        return getattr(self._lib, name)
+    def _init(self):
+        if '_func' not in self.__dict__:
+            self._func = getattr(self.lib, self.obj['mangled_name'])
+            try:
+                self._func.restype = makeCType(self.func,False) 
+            except KeyError:
+                self._func.restype = None
 
-    @property
-    def _call(self):
-        return self._get_ptr_func(self.mangled_name)        
-
-    def _set_arg_ctypes(self):
-        self._arg_ctypes = []
-        self._arg_vars = []
-        
-        tmp=[]
-        set_args = True
-        if len(self.proc['arg_nums'])>0:
-            for i in self.arg:
-                self._arg_vars.append(self._init_var(i))
-                self._arg_vars[-1]._func_arg=True
-                
-                if 'is_func' in i['var']:
-                    # See https://stackoverflow.com/questions/25014191/python-ctypes-function-pointer
-                    # Dont set argtypes if we want function ponters
-                    set_args = False
-                    self._arg_ctypes.append(None)
-                else:
-                    if 'pointer' in i['var']:
-                        pointer=True
-                    else:
-                        pointer=False                    
-                    x,y=self._arg_vars[-1].ctype_def_func(pointer=pointer,intent=i['var']['intent'])
-                    self._arg_ctypes.append(x)
-                    if y is not None:
-                        tmp.append(y)
-                    
-            if set_args:
-                self._arg_types = self._arg_ctypes + tmp
+            # Set argtypes
+            if self._num_args:
+                self._func.argtypes = [makeCType(v['var'],True) for v in self._args]
+                self._rawtypes = [makeCType(v['var'],False) for v in self._args]
             else:
-                self._arg_types = None
-                # print(self._arg_types)
-                # self._call.argtypes = self._arg_types
-            
+                self._func.argtypes = []
 
-    def _init_var(self, obj):
-        array = None
-        if 'array' in obj['var']:
-            array = obj['var']['array']
-        
-        if obj['var']['pytype'] == 'str':
-            x = fStr(self._lib, obj)
-        elif obj['var']['pytype'] == 'complex':
-            x = fComplex(self._lib, obj)
-        elif 'dt' in obj['var']:
-            x = fDerivedType(self._lib, obj)
-        elif array is not None:
-            #print(self.name,array)
-            if array['atype'] == 'explicit':
-                x = fExplicitArray(self._lib, obj)
-            elif array['atype'] == 'alloc':
-                x = fAllocatableArray(self._lib, obj)
-            elif array['atype'] == 'assumed_shape' or array['atype'] == 'pointer':
-                x = fAssumedShape(self._lib, obj)
-            elif array['atype'] == 'assumed_size':
-                x = fAssumedSize(self._lib, obj)
-            else:
-                raise ValueError("Unknown array: "+str(obj))
-        else:
-            x = fVar(self._lib, obj)
+        return self._func
 
-        x._func_arg=True
-
-        return x
-
-    def _set_return(self):
-        if not self._sub:
-            self._res_type = self.ctype_def()
-            # self._call.restype = self.res_type
-            
-    def _args_to_ctypes(self,args):
-        tmp = []
-        args_in = []
-        for idx, x in enumerate(six.moves.zip_longest(self._arg_vars, args, self._arg_ctypes, self.arg)):
-            vout, vin, fctype, a = x
-            if a['var']['optional'] and vin is None:
-                    #Missing optional arguments 
-                    args_in.append(None)            
-            elif 'is_func' in a['var']:
-                if isinstance(vin, six.string_types):
-                    # String name of the function
-                    # f_addr = ctypes.addressof(self._get_ptr_func(self._mangle_name(self.module,vin)))
-                    args_in.append(self._get_ptr_func(self._mangle_name(self.module,vin)))
-                elif isinstance(vin,fFunc):
-                    # Passed a fortran function 
-                    # f_addr = ctypes.addressof(self._get_ptr_func(vin.mangled_name))
-                    # ptr = ctypes.pointer(ctypes.c_int(f_addr))
-                    # print(f_addr,ptr)
-                    args_in.append(self._get_ptr_func(vin.mangled_name))
-                elif isinstance(vin, list):
-                    func = vin[0]
-                    func_name = vin[1]
-                    # Passed a python function
-                    self._arg_ctypes[idx] = ctypes.CFUNCTYPE(_allFuncs[func_name]._res_type,*_allFuncs[func_name]._arg_ctypes)
-                    args_in.append(self._arg_ctypes[idx](func))
-                else:
-                    raise TypeError("Expecting either a name of function (str) or a fFort function")
-            else:
-                x,y=vout.py_to_ctype_f(vin)
-                if 'pointer' in a['var']:
-                    args_in.append(vout.py_to_ctype_p(vin))
-                else:
-                    args_in.append(x)
-                if y is not None:
-                    tmp.append(y)
-
-        return args_in + tmp
-        
-    def ctype_def(self):
-        """
-        The ctype type of this object
-        """
-        if '_cached_ctype' not in self.__dict__:
-            self._cached_ctype = getattr(ctypes, self.proc['ret']['ctype'])
-        
-        return self._cached_ctype
-    
-    def _ctypes_to_return(self,args_out):
-    
-        r = {}
-        self.args_out = {}
-        
-        if self.save_args:
-            # Save arguments inside this object
-            for i,j in zip(self._arg_vars,args_out):
-                if 'out' in i.var['intent'] or i.var['intent']=='na': 
-                    r[i.name]=''
-                    if hasattr(j,'contents'):
-                        self.args_out[i.name]=j.contents
-                    else:
-                        self.args_out[i.name]=j
-        else:
-            # Copy arguments into a dict for returning
-            for i,j in zip(self._arg_vars,args_out):
-                if 'out' in i.var['intent'] or i.var['intent']=='na':
-                    if 'is_func' in i.var:
-                        r[i.name] = None
-                    elif hasattr(j,'contents'):
-                        r[i.name]=i.ctype_to_py_f(j.contents)
-                    else:
-                        r[i.name]=i.ctype_to_py_f(j)
-
-        return r
-    
     def __call__(self, *args):
-        if len(args) < self._num_args:
-            raise TypeError(str(self.name)+" takes atleast "+str(self._num_args) + " arguments got "+str(len(args)))
-        if len(args) > len(self.arg):
-            raise TypeError(str(self.name)+" takes atmost "+str(len(self.arg)) + " arguments got "+str(len(args)))
-            
-        args_in = self._args_to_ctypes(args)
+        if '_func' not in self.__dict__:
+            self._init()
         
-        self._call.argtypes = self._arg_types
-        self._call.restype = self._res_type
+        if len(args) < self._num_args:
+            raise TypeError(str(self.name)+" takes at least "+str(self._num_args) + " arguments got "+str(len(args)))
+        if len(args) > len(self._args):
+            raise TypeError(str(self.name)+" takes at most "+str(self._num_args) + " arguments got "+str(len(args)))
+            
+        a = []
+        if self._num_args:
+            for value,ptr,ctype in zip(args,self._func.argtypes,self._rawtypes):
+                a.append(ptr(ctype(value)))
         
         # Capture stdout messages
+        res = None
         with captureStdOut() as cs:        
-            if len(args_in) > 0:
-                res = self._call(*args_in)
+            if self._num_args:
+                res = self._func(*a)
             else:
-                res = self._call()
+                res = self._func()
 
-        if self._sub:
-            return self._ctypes_to_return(args_in)
+        if self.obj['proc']['sub']:
+            return a
         else:
-            return self.returnPytype()(res)
+            return res
+
+# class fFunc(fVar):
+
+    # def __init__(self, lib, obj):
+        # self.__dict__.update(obj)
+        # self._lib = lib
+        # self._sub = self.proc['sub']
             
-    def saveArgs(self,v=False):
-        """ 
-        Instead of copying arguments back we save them
-        inside the func object so we dont need to copy them
-        """
-        self.save_args=False
+        # self._set_return()
+        # self._set_arg_ctypes()
+        # self.save_args=False
+        # self.args_out = None
+        
+        # self._num_opt = self._count_optionals()
+        # self._num_args = len(self._arg_vars) - self._num_opt
+
+    # def _get_ptr_func(self,name):
+        # return getattr(self._lib, name)
+
+    # @property
+    # def _call(self):
+        # return self._get_ptr_func(self.mangled_name)        
+
+    # def _set_arg_ctypes(self):
+        # self._arg_ctypes = []
+        # self._arg_vars = []
+        
+        # tmp=[]
+        # set_args = True
+        # if len(self.proc['arg_nums'])>0:
+            # for i in self.arg:
+                # self._arg_vars.append(self._init_var(i))
+                # self._arg_vars[-1]._func_arg=True
+                
+                # if 'is_func' in i['var']:
+                    # # See https://stackoverflow.com/questions/25014191/python-ctypes-function-pointer
+                    # # Dont set argtypes if we want function ponters
+                    # set_args = False
+                    # self._arg_ctypes.append(None)
+                # else:
+                    # if 'pointer' in i['var']:
+                        # pointer=True
+                    # else:
+                        # pointer=False                    
+                    # x,y=self._arg_vars[-1].ctype_def_func(pointer=pointer,intent=i['var']['intent'])
+                    # self._arg_ctypes.append(x)
+                    # if y is not None:
+                        # tmp.append(y)
+                    
+            # if set_args:
+                # self._arg_types = self._arg_ctypes + tmp
+            # else:
+                # self._arg_types = None
+                # # print(self._arg_types)
+                # # self._call.argtypes = self._arg_types
             
-    def returnPytype(self):
-        if '_cached_pytype' not in self.__dict__:
-            self._cached_pytype = getattr(__builtin__, self.proc['ret']['pytype'])
+
+    # def _init_var(self, obj):
+        # array = None
+        # if 'array' in obj['var']:
+            # array = obj['var']['array']
         
-        return self._cached_pytype
+        # if obj['var']['pytype'] == 'str':
+            # x = fStr(self._lib, obj)
+        # elif obj['var']['pytype'] == 'complex':
+            # x = fComplex(self._lib, obj)
+        # elif 'dt' in obj['var']:
+            # x = fDerivedType(self._lib, obj)
+        # elif array is not None:
+            # #print(self.name,array)
+            # if array['atype'] == 'explicit':
+                # x = fExplicitArray(self._lib, obj)
+            # elif array['atype'] == 'alloc':
+                # x = fAllocatableArray(self._lib, obj)
+            # elif array['atype'] == 'assumed_shape' or array['atype'] == 'pointer':
+                # x = fAssumedShape(self._lib, obj)
+            # elif array['atype'] == 'assumed_size':
+                # x = fAssumedSize(self._lib, obj)
+            # else:
+                # raise ValueError("Unknown array: "+str(obj))
+        # else:
+            # x = fVar(self._lib, obj)
+
+        # x._func_arg=True
+
+        # return x
+
+    # def _set_return(self):
+        # if not self._sub:
+            # self._res_type = self.ctype_def()
+            # # self._call.restype = self.res_type
             
-    def __str__(self):
-        return str("Function: " + self.name)
+    # def _args_to_ctypes(self,args):
+        # tmp = []
+        # args_in = []
+        # for idx, x in enumerate(six.moves.zip_longest(self._arg_vars, args, self._arg_ctypes, self.arg)):
+            # vout, vin, fctype, a = x
+            # if a['var']['optional'] and vin is None:
+                    # #Missing optional arguments 
+                    # args_in.append(None)            
+            # elif 'is_func' in a['var']:
+                # if isinstance(vin, six.string_types):
+                    # # String name of the function
+                    # # f_addr = ctypes.addressof(self._get_ptr_func(self._mangle_name(self.module,vin)))
+                    # args_in.append(self._get_ptr_func(self._mangle_name(self.module,vin)))
+                # elif isinstance(vin,fFunc):
+                    # # Passed a fortran function 
+                    # # f_addr = ctypes.addressof(self._get_ptr_func(vin.mangled_name))
+                    # # ptr = ctypes.pointer(ctypes.c_int(f_addr))
+                    # # print(f_addr,ptr)
+                    # args_in.append(self._get_ptr_func(vin.mangled_name))
+                # elif isinstance(vin, list):
+                    # func = vin[0]
+                    # func_name = vin[1]
+                    # # Passed a python function
+                    # self._arg_ctypes[idx] = ctypes.CFUNCTYPE(_allFuncs[func_name]._res_type,*_allFuncs[func_name]._arg_ctypes)
+                    # args_in.append(self._arg_ctypes[idx](func))
+                # else:
+                    # raise TypeError("Expecting either a name of function (str) or a fFort function")
+            # else:
+                # x,y=vout.py_to_ctype_f(vin)
+                # if 'pointer' in a['var']:
+                    # args_in.append(vout.py_to_ctype_p(vin))
+                # else:
+                    # args_in.append(x)
+                # if y is not None:
+                    # tmp.append(y)
 
-    def __repr__(self):
-        return self.__str__()
-
-    @property
-    def __doc__(self):
-        s = "Function: " + self.name + "("
-        if len(self._arg_vars) > 0:
-            s = s + ",".join([i._pname() for i in self._arg_vars])
-        else:
-            s = s + "None"
-        s = s + ")" + os.linesep+' '
-        s = s + "Args In: " + \
-            ", ".join([i._pname()
-                      for i in self._arg_vars if 'in' in i.var['intent']]) + ' '+os.linesep+' '
-        s = s + "Args Out: " + \
-            ", ".join([i._pname()
-                      for i in self._arg_vars if 'out' in i.var['intent']]) + ' '+os.linesep+' '
-        s = s + "Returns: "
-        if self.sub:
-            s = s + "None"
-        else:
-            s = s + str(self.pytype)
-        s = s + os.linesep+' '
-        return s
-
-    def __bool__(self):
-        return True
+        # return args_in + tmp
         
-    def __len__(self):
-        return 1
+    # def ctype_def(self):
+        # """
+        # The ctype type of this object
+        # """
+        # if '_cached_ctype' not in self.__dict__:
+            # self._cached_ctype = getattr(ctypes, self.proc['ret']['ctype'])
         
-    def _count_optionals(self):
-        count = 0
-        for a in self.arg:
-            if 'optional' in a['var']:
-                if a['var']['optional']:
-                    count = count + 1 
-        return count
-        
-    def __dir__(self):
-        return ['saveArgs']
-
-
-
-class fFuncPtr(fFunc):
-    def __init__(self,*args,**kwargs):
-        super(fFuncPtr,self).__init__(*args,**kwargs)
-        self._cfunc = ctypes.CFUNCTYPE(self._res_type,*self._arg_ctypes)
-        # self._ref = self._cfunc.in_dll(self._lib,self.mangled_name)
+        # return self._cached_ctype
     
-    # def set_mod(self,func_obj):
-        # if isinstance(func_obj, six.string_types):
-            # # String name of the function
-            # self._ref.contents = self._ctype(self._get_ptr_func(self._mangle_name(self.module,func_obj))).contents
-        # elif isinstance(func_obj,fFunc):
-            # # Passed a fortran function 
-            # addr = ctypes.addressof(self._get_ptr_func(func_obj.mangled_name))
-            # print(addr)
-            # ctypes.memmove(self._ref,addr,ctypes.sizeof(ctypes.c_void_p))
-            # print(self._ref)
-        # elif callable(func_obj):
-            # # Passed a python function
-            # self._ref.contents  =  self._cfunc(func_obj)
+    # def _ctypes_to_return(self,args_out):
+    
+        # r = {}
+        # self.args_out = {}
+        
+        # if self.save_args:
+            # # Save arguments inside this object
+            # for i,j in zip(self._arg_vars,args_out):
+                # if 'out' in i.var['intent'] or i.var['intent']=='na': 
+                    # r[i.name]=''
+                    # if hasattr(j,'contents'):
+                        # self.args_out[i.name]=j.contents
+                    # else:
+                        # self.args_out[i.name]=j
         # else:
-            # raise TypeError("Expecting either a name of function (str), a fFort function, or a python callable")      
+            # # Copy arguments into a dict for returning
+            # for i,j in zip(self._arg_vars,args_out):
+                # if 'out' in i.var['intent'] or i.var['intent']=='na':
+                    # if 'is_func' in i.var:
+                        # r[i.name] = None
+                    # elif hasattr(j,'contents'):
+                        # r[i.name]=i.ctype_to_py_f(j.contents)
+                    # else:
+                        # r[i.name]=i.ctype_to_py_f(j)
+
+        # return r
+    
+    # def __call__(self, *args):
+        # if len(args) < self._num_args:
+            # raise TypeError(str(self.name)+" takes atleast "+str(self._num_args) + " arguments got "+str(len(args)))
+        # if len(args) > len(self.arg):
+            # raise TypeError(str(self.name)+" takes atmost "+str(len(self.arg)) + " arguments got "+str(len(args)))
+            
+        # args_in = self._args_to_ctypes(args)
         
-    @property
-    def _call(self):
-        # Use cvoidp to check as that is None if we have =>Null()
-        xx = self._cfunc.in_dll(self._lib,self.mangled_name)
-        print("*",ctypes.addressof(xx),xx)
-        c = ctypes.c_void_p.in_dll(self._lib,self.mangled_name)
-        if c.value is None:
-            raise ValueError("Must set pointer first")
-        self._ref = self._cfunc.in_dll(self._lib,self.mangled_name)
-        return self._ref
+        # self._call.argtypes = self._arg_types
+        # self._call.restype = self._res_type
         
-        
-        # if self._func_ptr is not None:
-            # return self._func_ptr
+        # # Capture stdout messages
+        # with captureStdOut() as cs:        
+            # if len(args_in) > 0:
+                # res = self._call(*args_in)
+            # else:
+                # res = self._call()
+
+        # if self._sub:
+            # return self._ctypes_to_return(args_in)
         # else:
-            # raise AttributeError("Must call set a function to be pointed to")
+            # return self.returnPytype()(res)
+            
+    # def saveArgs(self,v=False):
+        # """ 
+        # Instead of copying arguments back we save them
+        # inside the func object so we dont need to copy them
+        # """
+        # self.save_args=False
+            
+    # def returnPytype(self):
+        # if '_cached_pytype' not in self.__dict__:
+            # self._cached_pytype = getattr(__builtin__, self.proc['ret']['pytype'])
+        
+        # return self._cached_pytype
+            
+    # def __str__(self):
+        # return str("Function: " + self.name)
+
+    # def __repr__(self):
+        # return self.__str__()
+
+    # @property
+    # def __doc__(self):
+        # s = "Function: " + self.name + "("
+        # if len(self._arg_vars) > 0:
+            # s = s + ",".join([i._pname() for i in self._arg_vars])
+        # else:
+            # s = s + "None"
+        # s = s + ")" + os.linesep+' '
+        # s = s + "Args In: " + \
+            # ", ".join([i._pname()
+                      # for i in self._arg_vars if 'in' in i.var['intent']]) + ' '+os.linesep+' '
+        # s = s + "Args Out: " + \
+            # ", ".join([i._pname()
+                      # for i in self._arg_vars if 'out' in i.var['intent']]) + ' '+os.linesep+' '
+        # s = s + "Returns: "
+        # if self.sub:
+            # s = s + "None"
+        # else:
+            # s = s + str(self.pytype)
+        # s = s + os.linesep+' '
+        # return s
+
+    # def __bool__(self):
+        # return True
+        
+    # def __len__(self):
+        # return 1
+        
+    # def _count_optionals(self):
+        # count = 0
+        # for a in self.arg:
+            # if 'optional' in a['var']:
+                # if a['var']['optional']:
+                    # count = count + 1 
+        # return count
+        
+    # def __dir__(self):
+        # return ['saveArgs']
+
+
+
+# class fFuncPtr(fFunc):
+    # def __init__(self,*args,**kwargs):
+        # super(fFuncPtr,self).__init__(*args,**kwargs)
+        # self._cfunc = ctypes.CFUNCTYPE(self._res_type,*self._arg_ctypes)
+        # # self._ref = self._cfunc.in_dll(self._lib,self.mangled_name)
+    
+    # # def set_mod(self,func_obj):
+        # # if isinstance(func_obj, six.string_types):
+            # # # String name of the function
+            # # self._ref.contents = self._ctype(self._get_ptr_func(self._mangle_name(self.module,func_obj))).contents
+        # # elif isinstance(func_obj,fFunc):
+            # # # Passed a fortran function 
+            # # addr = ctypes.addressof(self._get_ptr_func(func_obj.mangled_name))
+            # # print(addr)
+            # # ctypes.memmove(self._ref,addr,ctypes.sizeof(ctypes.c_void_p))
+            # # print(self._ref)
+        # # elif callable(func_obj):
+            # # # Passed a python function
+            # # self._ref.contents  =  self._cfunc(func_obj)
+        # # else:
+            # # raise TypeError("Expecting either a name of function (str), a fFort function, or a python callable")      
+        
+    # @property
+    # def _call(self):
+        # # Use cvoidp to check as that is None if we have =>Null()
+        # xx = self._cfunc.in_dll(self._lib,self.mangled_name)
+        # print("*",ctypes.addressof(xx),xx)
+        # c = ctypes.c_void_p.in_dll(self._lib,self.mangled_name)
+        # if c.value is None:
+            # raise ValueError("Must set pointer first")
+        # self._ref = self._cfunc.in_dll(self._lib,self.mangled_name)
+        # return self._ref
+        
+        
+        # # if self._func_ptr is not None:
+            # # return self._func_ptr
+        # # else:
+            # # raise AttributeError("Must call set a function to be pointed to")
     
